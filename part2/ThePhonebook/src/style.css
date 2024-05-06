@@ -1,0 +1,18 @@
+input:focus {
+    outline: none;
+}
+
+.create-contact {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+    width: max-content;
+}
+.create-contact > input {
+    width: 200px;
+}
+.persist-contact {
+    width: max-content;
+    align-self: center;
+}

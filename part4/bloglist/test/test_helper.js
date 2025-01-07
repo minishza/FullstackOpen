@@ -1,6 +1,7 @@
-const Blog = require("../model/blog");
+const Blog = require("../model/Blog");
+const User = require("../model/User");
 
-const bootstrapBlogs = [
+const blogs = [
     {
         "title": "Jutta di Torr",
         "author": "bob jutt",
@@ -29,6 +30,12 @@ const blogInDatabase = async () => {
     return blogs.map((blog) => blog.toJSON())
 }
 
+const userInDatabase = async () => {
+    const users = await User.find({})
+
+    return users.map((u) => u.toJSON())
+}
+
 module.exports = {
-    bootstrapBlogs, blogInDatabase, nonExistingId
+     blogs, blogInDatabase, nonExistingId, userInDatabase
 }

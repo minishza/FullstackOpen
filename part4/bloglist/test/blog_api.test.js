@@ -2,7 +2,7 @@ const { test, after, beforeEach, describe, afterEach } = require('node:test')
 const assert = require('node:assert')
 const {agent} = require('supertest')
 const app = require('../app')
-const bcrypt = require('bcryptjs')
+const bcrypt = require('bcrypt')
 const api = agent(app)
 
 const mongoose = require('mongoose')
@@ -14,16 +14,23 @@ const User = require('../model/User')
 describe('when initial blogs saved', () => {
     beforeEach(async () => {
         await Blog.deleteMany({})
+        await User.deleteMany({})
         await Blog.insertMany(bootstrap.blogs)
-    })
 
+        const passwordHash = await bcrypt.hash('sekret', 10)
+        const user = new User({
+            username: 'root',
+            password: passwordHash
+        })
+        await user.save()
+
+    })
     test('blogs returned as json', async () => {
         api
             .get('/api/blogs')
             .expect(200)
             .expect('Content-Type', /application\/json/)
     })
-
     test('all blogs are returned', async () => {
         const blogs = await api.get('/api/blogs')
 
@@ -36,11 +43,20 @@ describe('when initial blogs saved', () => {
                 title: 'New Blog',
                 author: 'Test Author',
                 url: 'www.test.com',
-                likes: 10,
+                likes: 10
             }
+
+            const login = await api
+                .post('/api/login')
+                .send({
+                    username: 'root',
+                    password: 'sekret'
+                })
 
             await api
                 .post('/api/blogs')
+                .set('Content-Type', 'application/json')
+                .set('Authorization', `Bearer ${login.body.token}`)
                 .send(newBlog)
                 .expect(201)
                 .expect('Content-Type', /application\/json/)
@@ -61,8 +77,17 @@ describe('when initial blogs saved', () => {
                 url: 'www.papa.com'
             }
 
+            const login = await api
+                .post('/api/login')
+                .send({
+                    username: 'root',
+                    password: 'sekret'
+                })
+
             await api
                 .post('/api/blogs')
+                .set('Content-Type', 'application/json')
+                .set('Authorization', `Bearer ${login.body.token}`)
                 .send(blogWithNoLikes)
                 .expect(201)
                 .expect('Content-Type', /application\/json/)
@@ -78,13 +103,23 @@ describe('when initial blogs saved', () => {
                 likes: 10,
             }
 
+            const login = await api
+                .post('/api/login')
+                .send({
+                    username: 'root',
+                    password: 'sekret'
+                })
+
             await api
                 .post('/api/blogs')
+                .set('Content-Type', 'application/json')
+                .set('Authorization', `Bearer ${login.body.token}`)
                 .send(blogWithNoUrlAndTitle)
                 .expect(400)
         })
 
     });
+
     describe('when existing blog is updated', () => {
         test('blog updated', async () => {
             const blogs = await api.get('/api/blogs')
@@ -107,67 +142,73 @@ describe('when initial blogs saved', () => {
             assert.strictEqual(updatedBlog.body.likes, expectedLikes)
         })
     });
+    describe('when initial user is one', () => {
+        test("password hash is equal to compared password", async () => {
+            const password = 'password'
+            const passwordHash = await bcrypt.hash(password, 10)
+            const passwordEquals = await bcrypt.compare(password, passwordHash)
 
-})
-describe('when initial user is one', () => {
-    beforeEach(async () => {
-        await User.deleteMany({})
-        const passwordHash = await bcrypt.hash('sekret', 10)
-        const user = new User({
-            username: 'root',
-            passwordHash
+            assert.strictEqual(passwordEquals, true)
         })
 
-        await user.save()
-    })
+        test('all user fetched', async () => {
+            const users = await api
+                .get('/api/users')
+                .expect('Content-Type', /application\/json/)
 
-    test('all user fetched', async () => {
-        const users = await api
-            .get('/api/users')
-            .expect('Content-Type', /application\/json/)
+            assert.strictEqual(users.body.length, 1)
+        })
 
-        assert.strictEqual(users.body.length, 1)
-    })
+        test('user fetched by username', async () => {
+            const user = await User.findOne({username: 'root'})
 
-    test('user fetched by username', async () => {
-        const user = await User.findOne({username: 'root'})
+            assert.strictEqual(user.username, "root")
+        })
 
-        assert.strictEqual(user.username, "root")
-    })
+        test('creation succeeds with a fresh username', async () => {
+            const usersAtStart = await bootstrap.userInDatabase()
 
-    test('creation succeeds with a fresh username', async () => {
-        const usersAtStart = await bootstrap.userInDatabase()
+            const newUser = {
+                username: 'admin',
+                name: 'test admin',
+                password: 'password',
+            }
 
-        const newUser = {
-            username: 'admin',
-            name: 'test admin',
-            password: 'password',
-        }
+            await api
+                .post('/api/users')
+                .send(newUser)
+                .expect(201)
+                .expect('Content-Type', /application\/json/)
 
-        await api
-            .post('/api/users')
-            .send(newUser)
-            .expect(201)
-            .expect('Content-Type', /application\/json/)
+            const usersAtEnd = await bootstrap.userInDatabase()
+            assert.strictEqual(usersAtEnd.length, usersAtStart.length + 1)
 
-        const usersAtEnd = await bootstrap.userInDatabase()
-        assert.strictEqual(usersAtEnd.length, usersAtStart.length + 1)
+            const usernames = usersAtEnd.map(u => u.username)
+            assert(usernames.includes(newUser.username))
+        })
 
-        const usernames = usersAtEnd.map(u => u.username)
-        assert(usernames.includes(newUser.username))
-    })
+        test('creation succeeds with no password', async () => {
+            const newUser = {
+                username: 'boundToFail',
+                name: 'failed',
+                password: ''
+            }
 
-    test('creation succeeds with no password', async () => {
-        const newUser = {
-            username: 'boundToFail',
-            name: 'failed',
-            password: ''
-        }
+            await api
+                .post('/api/users')
+                .send(newUser)
+                .expect(400)
+        })
 
-        await api
-            .post('/api/users')
-            .send(newUser)
-            .expect(400)
+        test('user logged in successfully', async () => {
+            const user = {username: 'root', password: 'sekret'}
+
+            await api
+                .post("/api/login")
+                .send(user)
+                .expect(200)
+                .expect('Content-Type', /application\/json/)
+        })
     })
 })
 
